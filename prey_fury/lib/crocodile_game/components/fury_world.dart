@@ -1,96 +1,191 @@
 import 'dart:math';
 import 'package:flame/components.dart';
+import 'package:flutter/material.dart';
 import '../../kernel/models/prey.dart';
+import '../config/level_config.dart';
 import 'crocodile_player.dart';
-import 'input_controller.dart';
-import 'prey_component.dart';
 import 'prey_component.dart';
 import 'obstacle_component.dart';
 import 'spawn_manager.dart';
 
+/// Game state enum
+enum CrocGameStatus { playing, gameOver, levelComplete, paused }
+
 class FuryWorld extends World {
   late CrocodilePlayer player;
-  late InputController input;
+  late SpawnManager spawnManager;
   final Random _rnd = Random();
+  
+  // Game State
+  CrocGameStatus status = CrocGameStatus.playing;
+  int currentLevel = 1;
+  int currentWave = 1;
+  int totalPreysEaten = 0;
+  
+  // Callbacks
+  final void Function(int score)? onGameOver;
+  final void Function(int wave)? onWaveComplete;
+  final void Function(int level, int stars)? onLevelComplete;
+  final void Function(int level, String name)? onLevelStart;
+  final void Function()? onBossSpawn;
+  final void Function()? onTimeUp;
+  
+  FuryWorld({
+    this.onGameOver, 
+    this.onWaveComplete,
+    this.onLevelComplete,
+    this.onLevelStart,
+    this.onBossSpawn,
+    this.onTimeUp,
+  });
 
   @override
   Future<void> onLoad() async {
     player = CrocodilePlayer(position: Vector2(0, 0));
+    player.onEvent = _handlePlayerEvent;
     add(player);
     
-    input = InputController(player: player);
-    add(input);
-    
-    // Spawn Ecosystem
-    _spawnObstacles(20);
-    // _spawnPrey(10); // Legacy
-    add(SpawnManager()); // New Manager handles waves
+    spawnManager = SpawnManager();
+    add(spawnManager);
+  }
+  
+  void _handlePlayerEvent(CrocGameEvent event) {
+    if (event == CrocGameEvent.died) {
+      _triggerGameOver();
+    }
+  }
+  
+  void _triggerGameOver() {
+    if (status != CrocGameStatus.playing) return;
+    status = CrocGameStatus.gameOver;
+    onGameOver?.call(player.score);
   }
   
   @override
   void update(double dt) {
-     super.update(dt);
-     _checkCollisions();
+    if (status != CrocGameStatus.playing) return;
+    super.update(dt);
+    _checkCollisions();
   }
   
   void _checkCollisions() {
-     // Naive O(N) check (fine for small N)
-     
-     // 1. Prey Collision (Eat)
-     final preys = children.whereType<PreyComponent>().toList(); // Improve by caching list?
-     for (final prey in preys) {
-        if (prey.distance(player) < (player.size.x/2 + prey.size.x/2 - 5)) {
-           // EAT
-           player.grow(0.5); // Grow by 0.5 per prey
-           prey.removeFromParent();
-           // Particle Effect?
-           // Audio?
+    // === 1. PREY COLLISION ===
+    final preys = children.whereType<PreyComponent>().toList();
+    for (final prey in preys) {
+      final dist = prey.position.distanceTo(player.position);
+      final collisionDist = (player.size.x / 2 + prey.size.x / 2 - 5);
+      
+      if (dist < collisionDist) {
+        if (player.isFuryActive) {
+          _eatPrey(prey);
+        } else {
+          _damageFromPrey(prey);
         }
-     }
-     
-     // 2. Obstacle Collision (Bounce)
-     final obstacles = children.whereType<ObstacleComponent>();
-     for (final obs in obstacles) {
-        if (obs.distance(player) < (player.size.x/2 + obs.size.x/2)) {
-           // BOUNCE
-           Vector2 normal = (player.position - obs.position).normalized();
-           if (normal.isZero()) normal = Vector2(1, 0); // specific case
-           
-           player.velocity = normal * 300; // Knockback
-           player.grow(-0.2); // Lose some fat on hit? Or just bounce? Let's lose fat.
-        }
-     }
-  }
-
-  void _spawnObstacles(int count) {
-     for (int i=0; i<count; i++) {
-        final pos = _randomPos();
-        final type = ObstacleType.values[_rnd.nextInt(ObstacleType.values.length)];
-        add(ObstacleComponent(type: type, position: pos));
-     }
-  }
-  
-  /* Legacy Spawner
-  void _spawnPrey(int count) {
-     for (int i=0; i<count; i++) {
-        final pos = _randomPos();
-        // Weighted Random?
-        PreyType type = PreyType.angryApple;
-        double r = _rnd.nextDouble();
-        if (r < 0.1) type = PreyType.goldenCake;
-        else if (r < 0.3) type = PreyType.ninjaSushi;
-        else if (r < 0.6) type = PreyType.zombieBurger;
+      }
+    }
+    
+    // === 2. SOLID OBSTACLE COLLISION ===
+    final obstacles = children.whereType<ObstacleComponent>();
+    for (final obs in obstacles) {
+      if (!obs.isSolid) continue; // Zones handled in obstacle update
+      
+      final dist = obs.position.distanceTo(player.position);
+      final collisionDist = (player.size.x / 2 + obs.size.x / 2);
+      
+      if (dist < collisionDist) {
+        // Bounce
+        Vector2 normal = (player.position - obs.position).normalized();
+        if (normal.isZero()) normal = Vector2(1, 0);
         
-        add(PreyComponent(type: type, player: player, position: pos));
-     }
+        player.velocity = normal * 300;
+        
+        // Damage from spikes
+        player.takeDamage(obs.collisionDamage);
+      }
+    }
+    
+    // === 3. BOUNDARY CHECK ===
+    const double arenaSize = 900;
+    if (player.position.x.abs() > arenaSize || player.position.y.abs() > arenaSize) {
+      player.position.clamp(Vector2.all(-arenaSize), Vector2.all(arenaSize));
+      player.velocity = -player.velocity * 0.5;
+      player.takeDamage(10.0);
+    }
   }
-  */
   
-  Vector2 _randomPos() {
-     // Spawn in a 2000x2000 arena centered on 0,0
-     return Vector2(
-       (_rnd.nextDouble() * 2000) - 1000,
-       (_rnd.nextDouble() * 2000) - 1000
-     );
+  void _eatPrey(PreyComponent prey) {
+    final scoreValue = _getPreyScoreValue(prey.type);
+    
+    player.addScore(scoreValue);
+    player.grow(0.3);
+    player.addFury(0.1); // Small fury bonus for eating prey
+    
+    totalPreysEaten++;
+    spawnManager.onPreyEaten();
+    
+    prey.onEaten();
+    prey.removeFromParent();
+  }
+  
+  void _damageFromPrey(PreyComponent prey) {
+    final damage = _getPreyDamage(prey.type);
+    player.takeDamage(damage);
+    
+    // Prey bounces away
+    final knockback = (prey.position - player.position).normalized() * 200;
+    prey.velocity = knockback;
+    
+    player.furyMeter = 0.0;
+  }
+  
+  int _getPreyScoreValue(PreyType type) {
+    switch (type) {
+      case PreyType.boss: return 500;
+      case PreyType.goldenCake: return 100;
+      case PreyType.zombieBurger: return 30;
+      case PreyType.ninjaSushi: return 20;
+      case PreyType.ghostPizza: return 25;
+      default: return 10;
+    }
+  }
+  
+  double _getPreyDamage(PreyType type) {
+    switch (type) {
+      case PreyType.boss: return 30.0;
+      case PreyType.zombieBurger: return 15.0;
+      case PreyType.ninjaSushi: return 10.0;
+      default: return 5.0;
+    }
+  }
+  
+  /// Called when player eats food (passive pickups)
+  void onFoodEaten() {
+    player.addScore(10);
+    player.addFury(0.2);
+    player.grow(0.2);
+  }
+  
+  /// Load a specific level
+  void loadLevel(int level) {
+    currentLevel = level;
+    status = CrocGameStatus.playing;
+    player.reset();
+    spawnManager.loadLevel(level);
+  }
+  
+  /// Restart current level
+  void restartLevel() {
+    loadLevel(currentLevel);
+  }
+  
+  /// Restart entire game from level 1
+  void restartGame() {
+    totalPreysEaten = 0;
+    loadLevel(1);
+  }
+  
+  /// Continue to next level
+  void nextLevel() {
+    loadLevel(currentLevel + 1);
   }
 }

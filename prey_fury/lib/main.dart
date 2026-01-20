@@ -63,8 +63,7 @@ class _PreyFuryAppState extends State<PreyFuryApp> {
   }
 
   void _initGame() {
-    /*
-    _game = PreyFuryGame(
+    _game = CrocodileGame(
       onGameOver: (score) {
         _saveScore(score);
         setState(() {
@@ -73,8 +72,6 @@ class _PreyFuryAppState extends State<PreyFuryApp> {
         });
       },
     );
-    */
-    _game = CrocodileGame();
   }
 
   void _startGame() {
