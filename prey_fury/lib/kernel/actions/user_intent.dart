@@ -4,4 +4,5 @@ enum UserIntent {
   turnDown,
   turnLeft,
   turnRight,
+  activateFury,
 }

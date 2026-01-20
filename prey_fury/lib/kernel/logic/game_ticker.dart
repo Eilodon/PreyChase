@@ -51,6 +51,14 @@ class GameTicker {
     }
 
     // --- 1. SNAKE MOVEMENT INPUT ---
+    // Check for Manual Fury
+    if (intents.contains(UserIntent.activateFury) && newFuryMeter >= 1.0 && !newIsFuryActive) {
+       newIsFuryActive = true;
+       newFuryTimer = 50 + (state.bossesDefeated * 10); // Bonus duration for easier bosses? Or harder? Keep it consistent.
+       newFuryMeter = 0.0;
+       events.add(const GameEventFuryActivated());
+    }
+
     GridPoint nextDirection = _resolveDirection(state.currentDirection, state.nextDirection, intents);
     final currentHead = state.snakeBody.first;
     final newHead = currentHead + nextDirection;
@@ -79,42 +87,53 @@ class GameTicker {
        nextPreys.add(prey.copyWith(emotion: newEmotion));
     }
 
-    // Spawn Boss (Every 1000 score, if no boss active)
-    if (state.score > 0 && state.score % 1000 == 0 && !bossActive) {
-       // Check if we just spawned one recently? 
-       // Simple trick: Boss spawn resets score counter? No, let's keep it simple.
-       // Actually % 1000 == 0 is hard to hit exactly.
-       // Better: if score > nextBossThreshold. But we don't store threshold.
-       // Heuristic: If random small chance and score > 1000?
-       // Let's use: Tick check. If score >= 1000 AND no boss.
-       // But this will spam bosses if we don't track it.
-       // Let's just spawn ONE boss for now at 1000.
-       // IMPROVED: Spawn randomly if score > 500?
-       // Let's stick to: If no boss active, and score > 500, small chance to spawn boss.
-       if (_random.nextInt(1000) == 0 && state.score >= 500) {
-           final spawnPos = _findEmptySpot(state.snakeBody, state.food, state.preys);
-           if (spawnPos != null) {
-              nextPreys.add(PreyEntity(
-                 id: 'boss_$nextTick',
-                 type: PreyType.boss,
-                 position: spawnPos,
-                 spawnTick: nextTick,
-                 health: 5,
-                 maxHealth: 5,
-              ));
-           }
-       }
+    // Spawn Boss (Milestones: 500, 1500, 2500...)
+    // Formula: 500 + (bossesDefeated * 1000)
+    int nextBossScore = 500 + (state.bossesDefeated * 1000);
+    int newBossesDefeated = state.bossesDefeated;
+    
+    if (state.score >= nextBossScore && !bossActive) {
+         final spawnPos = _findEmptySpot(state.snakeBody, state.food, state.preys);
+         if (spawnPos != null) {
+            nextPreys.add(PreyEntity(
+               id: 'boss_$nextTick',
+               type: PreyType.boss,
+               position: spawnPos,
+               spawnTick: nextTick,
+               health: 5,
+               maxHealth: 5,
+            ));
+            newBossesDefeated++; // Mark milestone as passed
+         }
     }
 
     // Spawn new prey (Every 50 ticks, max 3)
     if (state.preys.length < 3 && nextTick % 50 == 0) {
        final spawnPos = _findEmptySpot(state.snakeBody, state.food, state.preys);
        if (spawnPos != null) {
+          // Select Type based on Score Progression
+          PreyType type = PreyType.angryApple;
+          final r = _random.nextDouble();
+          
+          if (state.score >= 800 && r < 0.1) {
+             type = PreyType.goldenCake; // 10% rare
+          } else if (state.score >= 500 && r < 0.3) {
+             type = PreyType.ghostPizza; 
+          } else if (state.score >= 300 && r < 0.5) {
+             type = PreyType.ninjaSushi;
+          } else if (state.score >= 100 && r < 0.7) {
+             type = PreyType.zombieBurger;
+          }
+          
+          int hp = (type == PreyType.zombieBurger) ? 3 : 1;
+
           nextPreys.add(PreyEntity(
              id: 'prey_$nextTick',
-             type: PreyType.angryApple, // Start simple
+             type: type,
              position: spawnPos,
              spawnTick: nextTick,
+             health: hp,
+             maxHealth: hp,
           ));
        }
     }
@@ -140,10 +159,11 @@ class GameTicker {
           GridPoint move = GridPoint.zero;
           final closestSnake = _findClosestSnakeSegment(prey.position, state.snakeBody);
           
-          if (prey.emotion == PreyEmotion.terrified) {
+          bool isFleeing = prey.emotion == PreyEmotion.terrified || prey.type == PreyType.goldenCake;
+          
+          if (isFleeing) {
              // RUN AWAY!
              // Move in direction that increases distance to snake head (most dangerous)
-             // Or closest segment? Let's flee from Head for simplicity/predictability
              final head = state.snakeBody.first;
              GridPoint delta = prey.position - head; // Vector pointing AWAY
              
@@ -158,8 +178,7 @@ class GameTicker {
                  move = delta.y > 0 ? GridPoint.down : GridPoint.up;
              }
           } else {
-              // CHASE (Angry/Desperate)
-              // Move towards CLOSEST snake segment
+              // CHASE (Angry/Desperate/Zombie/Ninja)
               GridPoint delta = closestSnake - prey.position;
               
               if (delta.x.abs() > delta.y.abs()) {
@@ -167,14 +186,30 @@ class GameTicker {
               } else if (delta.y != 0) {
                  move = delta.y > 0 ? GridPoint.down : GridPoint.up;
               }
+              
+              // Ninja: Small chance to burst move (double step)
+              if (prey.type == PreyType.ninjaSushi && _random.nextDouble() < 0.3) {
+                  move = move + move; // Dash 2 cells
+              }
           }
           
-          // Basic Wall check for prey
+          // Apply Move & Check Bounds (Ghost wraps)
           GridPoint nextPos = prey.position + move;
-          if (_isValidPos(nextPos)) {
+          
+          if (prey.type == PreyType.ghostPizza) {
+             // Wrap around
+             nextPos = GridPoint(
+               (nextPos.x + gridWidth) % gridWidth,
+               (nextPos.y + gridHeight) % gridHeight
+             );
              movedPreys.add(prey.copyWith(position: nextPos));
           } else {
-             movedPreys.add(prey); // Stay put
+             // Use standard wall check
+             if (_isValidPos(nextPos)) {
+                movedPreys.add(prey.copyWith(position: nextPos));
+             } else {
+                movedPreys.add(prey); // Stay put
+             }
           }
        } else {
           movedPreys.add(prey);
@@ -274,13 +309,10 @@ class GameTicker {
           newComboCount++;
           newComboTimer = 20; // 3 seconds approx @ 6.6 TPS (actually 3*6 = 18)
           newFuryMeter = min(1.0, newFuryMeter + 0.2); // 5 foods to full
-          
           if (newFuryMeter >= 1.0) {
-             newIsFuryActive = true;
-             newFuryTimer = 50; // ~8 seconds
-             newFuryMeter = 0.0;
-             events.add(const GameEventFuryActivated());
-          }
+              newFuryMeter = 1.0; // Cap at 100%, wait for manual trigger
+              // No auto activate
+           }
        }
        
        // Respawn Food
@@ -339,6 +371,7 @@ class GameTicker {
       furyTimer: newFuryTimer,
       comboCount: newComboCount,
       comboTimer: newComboTimer,
+      bossesDefeated: newBossesDefeated,
     ), events);
   }
 
@@ -353,6 +386,7 @@ class GameTicker {
          case UserIntent.turnRight: potential = GridPoint.right; break;
          case UserIntent.turnUp: potential = GridPoint.up; break;
          case UserIntent.turnDown: potential = GridPoint.down; break;
+         case UserIntent.activateFury: break; // Not a move
          case UserIntent.none: break;
        }
        if (potential != null && (potential + current) != GridPoint.zero) {

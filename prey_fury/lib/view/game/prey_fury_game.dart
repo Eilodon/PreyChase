@@ -16,6 +16,7 @@ import '../../kernel/events/game_event.dart';
 import '../effects/camera_shake.dart';
 import '../effects/particle_manager.dart';
 import '../style/game_styles.dart';
+import '../audio/audio_manager.dart';
 
 class PreyFuryGame extends FlameGame with KeyboardEvents {
   final Function(int score)? onGameOver;
@@ -110,6 +111,16 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
            fontWeight: FontWeight.bold,
            shadows: [Shadow(color: Colors.red, blurRadius: 15)],
          ));
+      } else if (state.furyMeter >= 1.0) {
+         // Ready State
+         bool flash = (state.tick % 4) < 2; // Fast flash
+         furyText.text = flash ? "READY! [SPACE]" : "";
+         furyText.textRenderer = TextPaint(style: const TextStyle(
+            color: Colors.cyanAccent,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            shadows: [Shadow(color: Colors.cyan, blurRadius: 10)]
+         ));
       } else {
          int pct = (state.furyMeter * 100).toInt();
          furyText.text = "⚡ Meter: $pct%";
@@ -131,17 +142,22 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
         if (event is GameEventSnakeHitWall || event is GameEventSnakeHitSelf) {
            cameraShake.shake(duration: 0.5, intensity: 10.0);
            particleManager.spawnExplosion(headPos, color: Colors.red);
+           AudioManager().playSfx('crash');
         } else if (event is GameEventSnakeDamaged) {
            cameraShake.shake(duration: 0.3, intensity: 8.0);
            particleManager.spawnConfetti(headPos, color: Colors.white, count: 5);
+           AudioManager().playSfx('damage');
         } else if (event is GameEventFuryActivated) {
            cameraShake.shake(duration: 0.5, intensity: 5.0);
            particleManager.spawnExplosion(headPos, color: Colors.orange, count: 50);
+           AudioManager().playSfx('fury_start');
         } else if (event is GameEventSnakeAtePrey) {
            cameraShake.shake(duration: 0.1, intensity: 3.0);
            particleManager.spawnExplosion(headPos, color: Colors.yellow, count: 20);
+           AudioManager().playSfx('kill');
         } else if (event is GameEventSnakeAteFood) {
            particleManager.spawnConfetti(headPos, color: Colors.green, count: 8);
+           AudioManager().playSfx('eats');
         }
      }
   }
@@ -516,6 +532,9 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
         _intents.add(UserIntent.turnLeft);
       } else if (keysPressed.contains(LogicalKeyboardKey.arrowRight)) {
         _intents.add(UserIntent.turnRight);
+      } else if (keysPressed.contains(LogicalKeyboardKey.space) || 
+                 keysPressed.contains(LogicalKeyboardKey.keyF)) {
+        _intents.add(UserIntent.activateFury);
       }
     }
     return KeyEventResult.handled;

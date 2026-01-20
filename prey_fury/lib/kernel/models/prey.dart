@@ -66,14 +66,24 @@ class PreyEntity extends Equatable {
 
   // Stats could be static maps or methods
   int get damage => type == PreyType.boss ? 5 : (type == PreyType.zombieBurger ? 3 : 1);
-  int get scoreValue => type == PreyType.boss ? 500 : (type == PreyType.goldenCake ? 100 : 10);
+  int get scoreValue {
+     switch (type) {
+       case PreyType.boss: return 500;
+       case PreyType.goldenCake: return 100;
+       case PreyType.zombieBurger: return 30;
+       case PreyType.ninjaSushi: return 20;
+       default: return 10;
+     }
+  }
   
   // Movement speed (ticks per move). Lower is faster.
   int get moveInterval {
      switch (type) {
        case PreyType.boss: return 6; // Slower but deadly
-       case PreyType.ninjaSushi: return 3; // Fast
        case PreyType.zombieBurger: return 8; // Slow
+       case PreyType.ninjaSushi: return 3; // Fast
+       case PreyType.goldenCake: return 3; // Fast (Fleeing)
+       case PreyType.ghostPizza: return 7; // Floaty
        default: return 5;
      }
   }

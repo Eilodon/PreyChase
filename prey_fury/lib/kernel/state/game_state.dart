@@ -29,6 +29,7 @@ class GameState extends Equatable {
   final int furyTimer; // Ticks remaining
   final int comboCount;
   final int comboTimer; // Ticks until combo reset
+  final int bossesDefeated; // Track progress for next boss spawn
 
   const GameState({
     required this.snakeBody,
@@ -45,6 +46,7 @@ class GameState extends Equatable {
     this.furyTimer = 0,
     this.comboCount = 0,
     this.comboTimer = 0,
+    this.bossesDefeated = 0,
   });
 
   static GameState initial({
@@ -75,6 +77,7 @@ class GameState extends Equatable {
       furyTimer: 0,
       comboCount: 0,
       comboTimer: 0,
+      bossesDefeated: 0,
     );
   }
 
@@ -93,6 +96,7 @@ class GameState extends Equatable {
     int? furyTimer,
     int? comboCount,
     int? comboTimer,
+    int? bossesDefeated,
   }) {
     return GameState(
       snakeBody: snakeBody ?? this.snakeBody,
@@ -109,6 +113,7 @@ class GameState extends Equatable {
       furyTimer: furyTimer ?? this.furyTimer,
       comboCount: comboCount ?? this.comboCount,
       comboTimer: comboTimer ?? this.comboTimer,
+      bossesDefeated: bossesDefeated ?? this.bossesDefeated,
     );
   }
 
@@ -138,5 +143,6 @@ class GameState extends Equatable {
         furyTimer,
         comboCount,
         comboTimer,
+        bossesDefeated,
       ];
 }

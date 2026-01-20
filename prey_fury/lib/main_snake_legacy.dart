@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flame/game.dart';
-// import 'view/game/prey_fury_game.dart';
-import 'crocodile_game/crocodile_game.dart';
+import 'view/game/prey_fury_game.dart';
 import 'view/screens/main_menu_screen.dart';
 import 'view/screens/game_over_screen.dart';
 import 'kernel/state/app_state.dart';
@@ -24,8 +23,7 @@ class PreyFuryApp extends StatefulWidget {
 
 class _PreyFuryAppState extends State<PreyFuryApp> {
   AppScreen _currentScreen = AppScreen.menu;
-  // late PreyFuryGame _game;
-  late CrocodileGame _game;
+  late PreyFuryGame _game;
   int _finalScore = 0;
   
   final PersistenceManager _persistence = PersistenceManager();
@@ -63,7 +61,6 @@ class _PreyFuryAppState extends State<PreyFuryApp> {
   }
 
   void _initGame() {
-    /*
     _game = PreyFuryGame(
       onGameOver: (score) {
         _saveScore(score);
@@ -73,8 +70,6 @@ class _PreyFuryAppState extends State<PreyFuryApp> {
         });
       },
     );
-    */
-    _game = CrocodileGame();
   }
 
   void _startGame() {
