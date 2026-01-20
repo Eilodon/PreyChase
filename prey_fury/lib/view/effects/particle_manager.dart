@@ -3,6 +3,8 @@ import 'package:flame/components.dart';
 import 'package:flame/particles.dart';
 import 'package:flutter/material.dart';
 
+import '../style/game_styles.dart';
+
 class ParticleManager extends Component {
   final Random _random = Random();
 
@@ -11,19 +13,21 @@ class ParticleManager extends Component {
       final angle = _random.nextDouble() * 2 * pi;
       final speed = _random.nextDouble() * 100 + 50;
       
-      add(
-        ParticleSystemComponent(
-          particle: AcceleratedParticle(
-            lifespan: 0.5,
-            position: position,
-            speed: Vector2(cos(angle), sin(angle)) * speed,
-            child: CircleParticle(
-              radius: 2,
-              paint: Paint()..color = color,
+        add(
+          ParticleSystemComponent(
+            particle: AcceleratedParticle(
+              lifespan: 0.5,
+              position: position,
+              speed: Vector2(cos(angle), sin(angle)) * speed,
+              child: ComputedParticle(
+                 renderer: (canvas, particle) {
+                    GameStyles.mutableGeneric.color = color.withOpacity(1 - particle.progress);
+                    canvas.drawCircle(Offset.zero, 2, GameStyles.mutableGeneric);
+                 }
+              ),
             ),
           ),
-        ),
-      );
+        );
     }
   }
 
@@ -41,8 +45,8 @@ class ParticleManager extends Component {
                 speed: Vector2(cos(angle), sin(angle)) * 200,
                 child: ComputedParticle(
                    renderer: (canvas, particle) {
-                      final paint = Paint()..color = color.withOpacity(1 - particle.progress);
-                      canvas.drawCircle(Offset.zero, 4 * (1 - particle.progress), paint);
+                      GameStyles.mutableGeneric.color = color.withOpacity(1 - particle.progress);
+                      canvas.drawCircle(Offset.zero, 4 * (1 - particle.progress), GameStyles.mutableGeneric);
                    }
                 )
              );

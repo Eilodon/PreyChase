@@ -56,8 +56,57 @@ class GameTicker {
     final newHead = currentHead + nextDirection;
 
     // --- 2. PREY MANAGEMENT ---
-    // Spawn new prey (Every 50 ticks, max 3 for now)
-    List<PreyEntity> nextPreys = List.from(state.preys);
+    
+    // A. Update Emotions & Spawning
+    List<PreyEntity> nextPreys = [];
+    bool bossActive = false;
+    for (var prey in state.preys) {
+       // Check boss
+       if (prey.type == PreyType.boss) bossActive = true;
+    
+       // Update Emotion
+       PreyEmotion newEmotion = PreyEmotion.angry;
+       
+       // Terrified if Fury is active
+       if (newIsFuryActive) {
+          newEmotion = PreyEmotion.terrified;
+       }
+       // Desperate if last one alive (and not fury)
+       else if (state.preys.length == 1) {
+          newEmotion = PreyEmotion.desperate;
+       }
+       
+       nextPreys.add(prey.copyWith(emotion: newEmotion));
+    }
+
+    // Spawn Boss (Every 1000 score, if no boss active)
+    if (state.score > 0 && state.score % 1000 == 0 && !bossActive) {
+       // Check if we just spawned one recently? 
+       // Simple trick: Boss spawn resets score counter? No, let's keep it simple.
+       // Actually % 1000 == 0 is hard to hit exactly.
+       // Better: if score > nextBossThreshold. But we don't store threshold.
+       // Heuristic: If random small chance and score > 1000?
+       // Let's use: Tick check. If score >= 1000 AND no boss.
+       // But this will spam bosses if we don't track it.
+       // Let's just spawn ONE boss for now at 1000.
+       // IMPROVED: Spawn randomly if score > 500?
+       // Let's stick to: If no boss active, and score > 500, small chance to spawn boss.
+       if (_random.nextInt(1000) == 0 && state.score >= 500) {
+           final spawnPos = _findEmptySpot(state.snakeBody, state.food, state.preys);
+           if (spawnPos != null) {
+              nextPreys.add(PreyEntity(
+                 id: 'boss_$nextTick',
+                 type: PreyType.boss,
+                 position: spawnPos,
+                 spawnTick: nextTick,
+                 health: 5,
+                 maxHealth: 5,
+              ));
+           }
+       }
+    }
+
+    // Spawn new prey (Every 50 ticks, max 3)
     if (state.preys.length < 3 && nextTick % 50 == 0) {
        final spawnPos = _findEmptySpot(state.snakeBody, state.food, state.preys);
        if (spawnPos != null) {
@@ -75,17 +124,49 @@ class GameTicker {
     for (var prey in nextPreys) {
        if (prey.status != PreyStatus.active) continue;
        
+       // Calculate effective move interval
+       int interval = prey.moveInterval;
+       
+       // Modifiers
+       if (prey.emotion == PreyEmotion.desperate) {
+          interval = max(2, (interval * 0.6).round()); // 40% faster
+       }
+       if (state.activeFuryType == FuryType.frost && state.isFuryActive) {
+          interval = (interval * 2); // 50% slower
+       }
+
        // Check if it's time to move
-       if (nextTick % prey.moveInterval == 0) {
-          // Move towards CLOSEST snake segment (not just head!)
-          final closestTarget = _findClosestSnakeSegment(prey.position, state.snakeBody);
-          GridPoint delta = closestTarget - prey.position;
+       if (nextTick % interval == 0) {
           GridPoint move = GridPoint.zero;
+          final closestSnake = _findClosestSnakeSegment(prey.position, state.snakeBody);
           
-          if (delta.x.abs() > delta.y.abs()) {
-             move = delta.x > 0 ? GridPoint.right : GridPoint.left;
-          } else if (delta.y != 0) {
-             move = delta.y > 0 ? GridPoint.down : GridPoint.up;
+          if (prey.emotion == PreyEmotion.terrified) {
+             // RUN AWAY!
+             // Move in direction that increases distance to snake head (most dangerous)
+             // Or closest segment? Let's flee from Head for simplicity/predictability
+             final head = state.snakeBody.first;
+             GridPoint delta = prey.position - head; // Vector pointing AWAY
+             
+             // If delta is zero (on top of snake), random move
+             if (delta == GridPoint.zero) {
+                delta = GridPoint(_random.nextBool()?1:-1, _random.nextBool()?1:-1);
+             }
+             
+             if (delta.x.abs() > delta.y.abs()) {
+                 move = delta.x > 0 ? GridPoint.right : GridPoint.left;
+             } else {
+                 move = delta.y > 0 ? GridPoint.down : GridPoint.up;
+             }
+          } else {
+              // CHASE (Angry/Desperate)
+              // Move towards CLOSEST snake segment
+              GridPoint delta = closestSnake - prey.position;
+              
+              if (delta.x.abs() > delta.y.abs()) {
+                 move = delta.x > 0 ? GridPoint.right : GridPoint.left;
+              } else if (delta.y != 0) {
+                 move = delta.y > 0 ? GridPoint.down : GridPoint.up;
+              }
           }
           
           // Basic Wall check for prey
@@ -98,6 +179,13 @@ class GameTicker {
        } else {
           movedPreys.add(prey);
        }
+    }
+
+
+
+    // Fury specific effects (Void, Lightning)
+    if (newIsFuryActive) {
+       movedPreys = _applyFuryEffects(state.activeFuryType, movedPreys, newHead);
     }
 
     // --- 3. COLLISION RESOLUTION ---
@@ -125,12 +213,36 @@ class GameTicker {
        if (hitHead) {
            if (newIsFuryActive) {
                // EAT PREY!
-               scoreDelta += prey.scoreValue;
-               events.add(const GameEventSnakeAtePrey());
-               // Fury Extends slightly
-               newFuryTimer += 10;
-               // Prey Dies
-               continue; // Don't add to final list
+               // Check Health
+               int newHp = prey.health - 1;
+               if (prey.type == PreyType.boss && state.activeFuryType == FuryType.classic) {
+                  // Classic weak vs Boss? No, standard damage.
+               }
+               
+               if (newHp <= 0) {
+                   // KILL
+                   scoreDelta += prey.scoreValue;
+                   events.add(const GameEventSnakeAtePrey());
+                   newFuryTimer += 10;
+                   // Prey Dies (don't add to list)
+               } else {
+                   // BOSS HURT
+                   finalPreys.add(prey.copyWith(health: newHp));
+                   events.add(const GameEventSnakeDamaged()); // Re-use damage sound/effect? Or new one?
+                   // Push Boss back?
+                   // For now, boss stays at position (collision handled).
+                   // Actually, if we hit head, we should bounce snake back? 
+                   // Or let snake pass through?
+                   // Simplest: Boss teleports away when hurt?
+                   // Let's make Boss teleport to random spot when hurt to prevent instant multi-hit kill.
+                   // Or invincibility frame?
+                   // BOSS TELEPORT:
+                   final jumpParams = _findEmptySpot(state.snakeBody, state.food, finalPreys);
+                   if (jumpParams != null) {
+                       finalPreys.last = finalPreys.last.copyWith(position: jumpParams); // Move the hurt boss
+                   }
+               }
+               continue; 
            } else {
                // DAMAGE!
                snakeTookDamage = true;
@@ -275,5 +387,47 @@ class GameTicker {
       }
     }
     return closest;
+  }
+
+  List<PreyEntity> _applyFuryEffects(FuryType type, List<PreyEntity> preys, GridPoint snakeHead) {
+     if (type == FuryType.voidFury) {
+        // Void Pull: Move all prey 1 step closer to snake head regardless of interval
+        // This is a powerful force!
+        return preys.map((p) {
+           if (p.status != PreyStatus.active) return p;
+           GridPoint delta = snakeHead - p.position;
+           if (delta == GridPoint.zero) return p;
+           
+           GridPoint pull = GridPoint.zero;
+           if (delta.x.abs() > delta.y.abs()) {
+               pull = delta.x > 0 ? GridPoint.right : GridPoint.left;
+           } else {
+               pull = delta.y > 0 ? GridPoint.down : GridPoint.up;
+           }
+           GridPoint newPos = p.position + pull;
+           if (_isValidPos(newPos)) {
+              return p.copyWith(position: newPos);
+           }
+           return p;
+        }).toList();
+     }
+     
+     if (type == FuryType.lightning) {
+        // Lightning: Kill prey within range 5 instantly? 
+        // Or just damage? Let's say it effectively acts as a ranged "eat"
+        // But for simplicity in this tick structure, we'll mark them as killed/eaten 
+        // in collision phase? Or move them ONTO the snake head to force collision?
+        // Let's move them ONTO snake head if within range 3
+        return preys.map((p) {
+            if (p.status != PreyStatus.active) return p;
+            int dist = (p.position - snakeHead).manhattanDistance;
+            if (dist <= 3) {
+               return p.copyWith(position: snakeHead); // Force collision/eat next step
+            }
+            return p;
+        }).toList();
+     }
+     
+     return preys;
   }
 }

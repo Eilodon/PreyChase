@@ -15,6 +15,7 @@ import '../../kernel/models/prey.dart';
 import '../../kernel/events/game_event.dart';
 import '../effects/camera_shake.dart';
 import '../effects/particle_manager.dart';
+import '../style/game_styles.dart';
 
 class PreyFuryGame extends FlameGame with KeyboardEvents {
   final Function(int score)? onGameOver;
@@ -38,47 +39,8 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
   late TextComponent furyText;
 
   // === ENHANCED VISUAL PAINTS ===
+  // All paints moved to GameStyles for zero-allocation performance.
   
-  // Snake paints with neon glow
-  final Paint snakeBodyPaint = Paint()..color = const Color(0xFF00FF88);
-  final Paint snakeHeadPaint = Paint()..color = const Color(0xFFFFFFFF);
-  final Paint snakeGlowPaint = Paint()
-    ..color = const Color(0xFF00FF88).withOpacity(0.4)
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-  
-  // Fury mode paints
-  final Paint furyBodyPaint = Paint()..color = const Color(0xFFFF6600);
-  final Paint furyGlowPaint = Paint()
-    ..color = const Color(0xFFFF4400).withOpacity(0.6)
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
-  
-  // Background
-  final Paint backgroundPaint = Paint()..color = const Color(0xFF0A0A1A);
-  final Paint furyBackgroundPaint = Paint()..color = const Color(0xFF1A0505);
-  final Paint gridLinePaint = Paint()
-    ..color = const Color(0xFF1A2A3A)
-    ..strokeWidth = 1.0
-    ..style = PaintingStyle.stroke;
-  final Paint gridGlowPaint = Paint()
-    ..color = const Color(0xFF00FFFF).withOpacity(0.1)
-    ..strokeWidth = 2.0
-    ..style = PaintingStyle.stroke;
-  
-  // Food paints
-  final Paint foodPaint = Paint()..color = const Color(0xFFFF2222);
-  final Paint foodGlowPaint = Paint()
-    ..color = const Color(0xFFFF0000).withOpacity(0.5)
-    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-  
-  // Prey paints by type
-  final Map<PreyType, Color> preyColors = {
-    PreyType.angryApple: const Color(0xFFCC2222),
-    PreyType.zombieBurger: const Color(0xFF8B5A2B),
-    PreyType.ninjaSushi: const Color(0xFF4488FF),
-    PreyType.ghostPizza: const Color(0xFFAA88FF),
-    PreyType.goldenCake: const Color(0xFFFFD700),
-  };
-
   late GameState prevState;
 
   PreyFuryGame({this.onGameOver});
@@ -204,7 +166,7 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
     // === DRAW BACKGROUND (Expanded to hide edges during shake) ===
     canvas.drawRect(
       Rect.fromLTWH(-50, -50, gridWidth * cellSize + 100, gridHeight * cellSize + 100),
-      isFury ? furyBackgroundPaint : backgroundPaint
+      isFury ? GameStyles.furyBackground : GameStyles.background
     );
 
     // === DRAW NEON GRID ===
@@ -215,11 +177,11 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
        final cx = food.x * cellSize + cellSize/2;
        final cy = food.y * cellSize + cellSize/2;
        // Glow
-       canvas.drawCircle(Offset(cx, cy), cellSize/2 + 4, foodGlowPaint);
+       canvas.drawCircle(Offset(cx, cy), cellSize/2 + 4, GameStyles.foodGlow);
        // Core
-       canvas.drawCircle(Offset(cx, cy), cellSize/2 - 4, foodPaint);
+       canvas.drawCircle(Offset(cx, cy), cellSize/2 - 4, GameStyles.food);
        // Shine
-       canvas.drawCircle(Offset(cx - 4, cy - 4), 3, Paint()..color = Colors.white.withOpacity(0.6));
+       canvas.drawCircle(Offset(cx - 4, cy - 4), 3, GameStyles.foodShine);
     }
     
     // === DRAW PREY WITH ANGRY FACES ===
@@ -229,6 +191,15 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
 
     // === DRAW SNAKE WITH GRADIENT & GLOW ===
     _drawSnake(canvas, alpha, isFury);
+    
+    // === DRAW FURY EFFECTS (Lightning/Void) ===
+    if (isFury) {
+       _drawFuryEffects(canvas, alpha);
+    }
+
+    // === DRAW COMBO RATING ===
+    _drawComboRating(canvas);
+
 
     // REMOVED: _drawGameOver(canvas) - It's handled by Flutter overlay now
     
@@ -237,8 +208,8 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
 
   void _drawNeonGrid(Canvas canvas, bool isFury) {
     final Paint linePaint = isFury 
-      ? (Paint()..color = const Color(0xFF4A2020)..strokeWidth = 1)
-      : gridLinePaint;
+      ? GameStyles.furyGridLine
+      : GameStyles.gridLine;
     
     // Vertical lines
     for (int x = 0; x <= gridWidth; x++) {
@@ -259,7 +230,7 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
   }
 
   void _drawSnake(Canvas canvas, double alpha, bool isFury) {
-    final glowPaint = isFury ? furyGlowPaint : snakeGlowPaint;
+    final glowPaint = isFury ? GameStyles.furyGlow : GameStyles.snakeGlow;
     
     bool canInterpolate = state.snakeBody.length == prevState.snakeBody.length;
     
@@ -289,67 +260,244 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
           : Color.lerp(const Color(0xFF00FF88), const Color(0xFF00AA55), t)!;
         
         // Draw body segment
-        canvas.drawCircle(center, radius, Paint()..color = segColor);
+        // Optimized: reuse mutable paint
+        Colors.white; // No-op to keep logic
+        GameStyles.mutableGeneric.color = segColor;
+        canvas.drawCircle(center, radius, GameStyles.mutableGeneric);
         
         // Head special treatment
         if (i == 0) {
-          canvas.drawCircle(center, radius, snakeHeadPaint);
+          canvas.drawCircle(center, radius, GameStyles.snakeHead);
           // Eyes
-          canvas.drawCircle(Offset(center.dx - 5, center.dy - 3), 4, Paint()..color = Colors.black);
-          canvas.drawCircle(Offset(center.dx + 5, center.dy - 3), 4, Paint()..color = Colors.black);
-          canvas.drawCircle(Offset(center.dx - 5, center.dy - 3), 2, Paint()..color = Colors.white);
-          canvas.drawCircle(Offset(center.dx + 5, center.dy - 3), 2, Paint()..color = Colors.white);
+          canvas.drawCircle(Offset(center.dx - 5, center.dy - 3), 4, GameStyles.eyesBlack);
+          canvas.drawCircle(Offset(center.dx + 5, center.dy - 3), 4, GameStyles.eyesBlack);
+          canvas.drawCircle(Offset(center.dx - 5, center.dy - 3), 2, GameStyles.eyesWhite);
+          canvas.drawCircle(Offset(center.dx + 5, center.dy - 3), 2, GameStyles.eyesWhite);
         }
     }
   }
 
   void _drawPrey(Canvas canvas, PreyEntity prey, double alpha) {
-    final color = preyColors[prey.type] ?? Colors.red;
+    if (prey.type == PreyType.boss) {
+       _drawBoss(canvas, prey, alpha);
+       return;
+    }
+
+    Color color = GameStyles.preyColors[prey.type] ?? Colors.red;
     
-    // Try interpolate from previous position
+    // Emotion Mods
+    if (prey.emotion == PreyEmotion.terrified) {
+       color = Colors.blueGrey.shade200; // Pale with fear
+    } else if (prey.emotion == PreyEmotion.desperate) {
+       color = Colors.redAccent.shade700; // Deep red/Sweating
+    }
+    
+
+    // Interpolation
     double rX = prey.position.x * cellSize;
     double rY = prey.position.y * cellSize;
     
     try {
        final prevPrey = prevState.preys.firstWhere((e) => e.id == prey.id);
-       rX = lerpDouble(prevPrey.position.x * cellSize, prey.position.x * cellSize, alpha)!;
-       rY = lerpDouble(prevPrey.position.y * cellSize, prey.position.y * cellSize, alpha)!;
-    } catch (e) {
-       // New prey
-    }
+       if ((prevPrey.position - prey.position).manhattanDistance < 2) {
+          rX = lerpDouble(prevPrey.position.x * cellSize, prey.position.x * cellSize, alpha)!;
+          rY = lerpDouble(prevPrey.position.y * cellSize, prey.position.y * cellSize, alpha)!;
+       }
+    } catch (e) { }
     
     final rect = Rect.fromLTWH(rX + 3, rY + 3, cellSize - 6, cellSize - 6);
     final center = rect.center;
     
     // Glow
-    canvas.drawCircle(center, cellSize/2, Paint()
-      ..color = color.withOpacity(0.4)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
+    GameStyles.mutablePreyGlow.color = color.withOpacity(0.4);
+    canvas.drawCircle(center, cellSize/2, GameStyles.mutablePreyGlow);
     
     // Body (rounded rect)
     final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(6));
-    canvas.drawRRect(rrect, Paint()..color = color);
+    GameStyles.mutablePreyBody.color = color;
+    canvas.drawRRect(rrect, GameStyles.mutablePreyBody);
     
-    // Angry face!
-    // Eyes (white with black pupils)
-    canvas.drawCircle(Offset(center.dx - 6, center.dy - 4), 5, Paint()..color = Colors.white);
-    canvas.drawCircle(Offset(center.dx + 6, center.dy - 4), 5, Paint()..color = Colors.white);
-    canvas.drawCircle(Offset(center.dx - 6, center.dy - 4), 3, Paint()..color = Colors.black);
-    canvas.drawCircle(Offset(center.dx + 6, center.dy - 4), 3, Paint()..color = Colors.black);
-    
-    // Angry eyebrows (angled lines)
-    final eyebrowPaint = Paint()..color = Colors.black..strokeWidth = 2..style = PaintingStyle.stroke;
-    canvas.drawLine(Offset(center.dx - 10, center.dy - 10), Offset(center.dx - 3, center.dy - 7), eyebrowPaint);
-    canvas.drawLine(Offset(center.dx + 10, center.dy - 10), Offset(center.dx + 3, center.dy - 7), eyebrowPaint);
-    
-    // Angry mouth (frown or teeth)
-    canvas.drawArc(
-      Rect.fromCenter(center: Offset(center.dx, center.dy + 6), width: 12, height: 8),
-      0.2,
-      2.7,
-      false,
-      eyebrowPaint,
-    );
+    // Facial Expressions based on Emotion
+    if (prey.emotion == PreyEmotion.terrified) {
+        // Scared Eyes (Big pupils)
+        canvas.drawCircle(Offset(center.dx - 6, center.dy - 4), 6, GameStyles.eyesWhite);
+        canvas.drawCircle(Offset(center.dx + 6, center.dy - 4), 6, GameStyles.eyesWhite);
+        canvas.drawCircle(Offset(center.dx - 6, center.dy - 4), 2, GameStyles.eyesBlack);
+        canvas.drawCircle(Offset(center.dx + 6, center.dy - 4), 2, GameStyles.eyesBlack);
+        
+        // Sweat drop
+        canvas.drawCircle(Offset(center.dx + 8, center.dy - 10), 2, GameStyles.sweatDrop);
+
+        // Screaming mouth (O shape)
+        canvas.drawCircle(Offset(center.dx, center.dy + 6), 4, GameStyles.eyesBlack);
+    } else {
+        // Angry/Default
+        // Eyes (white with black pupils)
+        canvas.drawCircle(Offset(center.dx - 6, center.dy - 4), 5, GameStyles.eyesWhite);
+        canvas.drawCircle(Offset(center.dx + 6, center.dy - 4), 5, GameStyles.eyesWhite);
+        canvas.drawCircle(Offset(center.dx - 6, center.dy - 4), 3, GameStyles.eyesBlack);
+        canvas.drawCircle(Offset(center.dx + 6, center.dy - 4), 3, GameStyles.eyesBlack);
+        
+        // Angry mouth (frown or teeth)
+        canvas.drawArc(
+          Rect.fromCenter(center: Offset(center.dx, center.dy + 6), width: 12, height: 8),
+          0.2,
+          2.7,
+          false,
+          GameStyles.eyebrow,
+        );
+    }
+  }
+
+  void _drawBoss(Canvas canvas, PreyEntity prey, double alpha) {
+     // Draw specific Boss Visuals
+     final rX = prey.position.x * cellSize;
+     final rY = prey.position.y * cellSize;
+     final center = Offset(rX + cellSize/2, rY + cellSize/2);
+     
+     // 1. Pulsing Aura
+     double pulse = (sin(state.tick * 0.2) + 1) / 2;
+     canvas.drawCircle(center, cellSize * (0.6 + pulse * 0.2), GameStyles.bossAura);
+
+     // 2. Body
+     canvas.drawCircle(center, cellSize/2 + 4, GameStyles.bossBody);
+     
+     // 3. Face (Skull-like)
+     canvas.drawCircle(Offset(center.dx - 8, center.dy - 4), 6, GameStyles.bossEyeRed); // Eye L
+     canvas.drawCircle(Offset(center.dx + 8, center.dy - 4), 6, GameStyles.bossEyeRed); // Eye R
+     // Glowing pupils
+     canvas.drawCircle(Offset(center.dx - 8, center.dy - 4), 2, GameStyles.eyePupilYellow); 
+     canvas.drawCircle(Offset(center.dx + 8, center.dy - 4), 2, GameStyles.eyePupilYellow); 
+     
+     // Grin
+     canvas.drawArc(Rect.fromCenter(center: Offset(center.dx, center.dy + 8), width: 20, height: 10), 0, 3.14, false, GameStyles.mouthWhiteStroke);
+
+     // 4. Crown
+     final p = Path();
+     p.moveTo(center.dx - 10, center.dy - 12);
+     p.lineTo(center.dx - 10, center.dy - 22);
+     p.lineTo(center.dx - 5, center.dy - 18);
+     p.lineTo(center.dx, center.dy - 25);
+     p.lineTo(center.dx + 5, center.dy - 18);
+     p.lineTo(center.dx + 10, center.dy - 22);
+     p.lineTo(center.dx + 10, center.dy - 12);
+     p.close();
+     canvas.drawPath(p, GameStyles.bossCrown);
+
+     // 5. HP Bar
+     final barWidth = 40.0;
+     final barHeight = 6.0;
+     final barTop = center.dy - cellSize - 10;
+     final hpPct = prey.health / prey.maxHealth;
+     
+     // Background
+     canvas.drawRect(Rect.fromLTWH(center.dx - barWidth/2, barTop, barWidth, barHeight), GameStyles.hpBarBg);
+     // Foreground
+     canvas.drawRect(Rect.fromLTWH(center.dx - barWidth/2, barTop, barWidth * hpPct, barHeight), GameStyles.hpBarFg);
+  }
+
+  void _drawFuryEffects(Canvas canvas, double alpha) {
+     final snakeHead = state.snakeBody.first;
+     final headCenter = Offset(
+        snakeHead.x * cellSize + cellSize/2,
+        snakeHead.y * cellSize + cellSize/2
+     );
+
+     if (state.activeFuryType == FuryType.lightning) {
+        for (final prey in state.preys) {
+           if (prey.status != PreyStatus.active) continue;
+           // Only close ones
+           if ((prey.position - snakeHead).manhattanDistance <= 5) {
+              final preyCenter = Offset(
+                prey.position.x * cellSize + cellSize/2,
+                prey.position.y * cellSize + cellSize/2
+              );
+              
+              // ZigZag line
+              final path = Path();
+              path.moveTo(headCenter.dx, headCenter.dy);
+              final mid = Offset((headCenter.dx + preyCenter.dx)/2, (headCenter.dy + preyCenter.dy)/2);
+              final jitter = Random().nextDouble() * 20 - 10;
+              path.lineTo(mid.dx + jitter, mid.dy - jitter);
+              path.lineTo(preyCenter.dx, preyCenter.dy);
+              
+              canvas.drawPath(path, GameStyles.lightning);
+           }
+        }
+     }
+     
+     if (state.activeFuryType == FuryType.voidFury) {
+         // Draw Black Hole effect at head
+         canvas.drawCircle(headCenter, cellSize * 3, GameStyles.voidHolefill);
+         canvas.drawCircle(headCenter, cellSize * 1.5, GameStyles.voidCore);
+         
+         // Suction lines?
+         for (int i=0; i<8; i++) {
+             double angle = (state.tick * 0.1) + (i * pi / 4);
+             double r = cellSize * 2.5;
+             canvas.drawLine(
+               headCenter + Offset(cos(angle)*r, sin(angle)*r),
+               headCenter + Offset(cos(angle)*r*0.5, sin(angle)*r*0.5),
+               GameStyles.voidLines
+             );
+         }
+     }
+  }
+
+  void _drawComboRating(Canvas canvas) {
+     if (state.comboCount < 5) return;
+     
+     final rating = state.comboRating;
+     final color = _getRatingColor(rating);
+     
+     final textPainter = TextPainter(
+       text: TextSpan(
+         text: rating,
+         style: TextStyle(
+           fontSize: 60,
+           fontWeight: FontWeight.w900,
+           fontStyle: FontStyle.italic,
+           color: color,
+           shadows: [
+             Shadow(color: Colors.black, offset: const Offset(4, 4), blurRadius: 4),
+             Shadow(color: color, blurRadius: 20),
+           ]
+         ),
+       ),
+       textDirection: TextDirection.ltr,
+     );
+     
+     textPainter.layout();
+     // Draw in top right corner below score? Or center right background?
+     // Let's put it on top right, large
+     textPainter.paint(canvas, Offset(gridWidth * cellSize - 100, 80));
+     
+     // Subtext "Style"
+     final subPainter = TextPainter(
+       text: TextSpan(
+         text: "STYLE ${state.comboCount}",
+         style: const TextStyle(
+           fontSize: 16,
+           fontWeight: FontWeight.bold,
+           color: Colors.white,
+           letterSpacing: 2.0
+         ),
+       ),
+       textDirection: TextDirection.ltr,
+     );
+     subPainter.layout();
+     subPainter.paint(canvas, Offset(gridWidth * cellSize - 90, 145));
+  }
+  
+  Color _getRatingColor(String rating) {
+     switch (rating) {
+       case 'SSS': return const Color(0xFFFF0000); // Red
+       case 'SS': return const Color(0xFFFFAA00); // Orange
+       case 'S': return const Color(0xFFFFD700); // Gold
+       case 'A': return const Color(0xFF00FF00); // Green
+       case 'B': return const Color(0xFF00FFFF); // Cyan
+       default: return Colors.white;
+     }
   }
 
 

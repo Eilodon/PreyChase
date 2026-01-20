@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
+import '../../kernel/models/player_progress.dart';
+import '../../kernel/logic/shop_logic.dart';
 
 class MainMenuScreen extends StatelessWidget {
   final VoidCallback onPlay;
   final VoidCallback onQuit;
+  final PlayerProgress progress;
+  final Function(String) onBuyItem;
 
   const MainMenuScreen({
     super.key,
     required this.onPlay,
     required this.onQuit,
+    this.progress = const PlayerProgress(),
+    required this.onBuyItem,
   });
 
   @override
@@ -37,7 +43,44 @@ class MainMenuScreen extends StatelessWidget {
                 letterSpacing: 2,
               ),
             ),
-            const SizedBox(height: 80),
+            const SizedBox(height: 40),
+            
+            // Stats Panel
+            Text(
+               "HIGH SCORE: ${progress.highScore}",
+               style: const TextStyle(color: Colors.yellowAccent, fontSize: 28, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+             Text(
+               "POINTS: ${progress.totalScore}",
+               style: const TextStyle(color: Colors.greenAccent, fontSize: 24),
+            ),
+            const SizedBox(height: 40),
+
+            // Shop / Unlocks
+            Row(
+               mainAxisAlignment: MainAxisAlignment.center,
+               children: [
+                  _ShopItem(
+                     id: 'lightning', 
+                     name: 'Lightning Fury', 
+                     cost: ShopLogic.costLightning, 
+                     isOwned: progress.unlockedFuryTypes.contains('lightning'),
+                     canAfford: progress.totalScore >= ShopLogic.costLightning,
+                     onBuy: () => onBuyItem('lightning'),
+                  ),
+                  const SizedBox(width: 20),
+                  _ShopItem(
+                     id: 'voidFury', 
+                     name: 'Void Fury', 
+                     cost: ShopLogic.costVoid, 
+                     isOwned: progress.unlockedFuryTypes.contains('voidFury'),
+                     canAfford: progress.totalScore >= ShopLogic.costVoid,
+                     onBuy: () => onBuyItem('voidFury'),
+                  ),
+               ],
+            ),
+            const SizedBox(height: 40),
             
             // Play Button
             _MenuButton(
@@ -131,4 +174,63 @@ class _MenuButton extends StatelessWidget {
       child: Text(text),
     );
   }
+}
+
+class _ShopItem extends StatelessWidget {
+   final String id;
+   final String name;
+   final int cost;
+   final bool isOwned;
+   final bool canAfford;
+   final VoidCallback onBuy;
+
+   const _ShopItem({
+      required this.id, required this.name, required this.cost, 
+      required this.isOwned, required this.canAfford, required this.onBuy
+   });
+
+   @override
+   Widget build(BuildContext context) {
+      Color color = Colors.grey;
+      String label = "LOCKED";
+      
+      if (isOwned) {
+         color = Colors.green;
+         label = "OWNED";
+      } else if (canAfford) {
+         color = Colors.orange;
+         label = "$cost PTS";
+      } else {
+         color = Colors.red.shade900;
+         label = "$cost PTS";
+      }
+
+      return Column(
+         children: [
+            Container(
+               padding: const EdgeInsets.all(12),
+               decoration: BoxDecoration(
+                  border: Border.all(color: color, width: 2),
+                  borderRadius: BorderRadius.circular(8),
+                  color: color.withOpacity(0.2),
+               ),
+               child: Column(
+                  children: [
+                     Icon(Icons.flash_on, color: color, size: 32),
+                     const SizedBox(height: 4),
+                     Text(name, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+                  ],
+               ),
+            ),
+            const SizedBox(height: 8),
+            isOwned 
+            ? const Icon(Icons.check, color: Colors.green)
+            : ElevatedButton(
+               onPressed: canAfford ? onBuy : null,
+               style: ElevatedButton.styleFrom(backgroundColor: color),
+               child: Text(label),
+            )
+         ],
+      );
+   }
 }

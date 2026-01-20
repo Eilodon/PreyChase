@@ -4,6 +4,14 @@ import '../models/prey.dart';
 
 enum GameStatus { playing, gameOver }
 
+enum FuryType {
+  classic,      // Speed + Invincible
+  lightning,    // Chain damage nearby prey
+  inferno,      // Leave fire trails
+  frost,        // Slow all prey
+  voidFury,     // Black hole pull effect
+}
+
 class GameState extends Equatable {
   final List<GridPoint> snakeBody;
   final GridPoint currentDirection;
@@ -17,6 +25,7 @@ class GameState extends Equatable {
   final List<PreyEntity> preys;
   final double furyMeter; // 0.0 to 1.0
   final bool isFuryActive;
+  final FuryType activeFuryType;
   final int furyTimer; // Ticks remaining
   final int comboCount;
   final int comboTimer; // Ticks until combo reset
@@ -32,6 +41,7 @@ class GameState extends Equatable {
     this.preys = const [],
     this.furyMeter = 0.0,
     this.isFuryActive = false,
+    this.activeFuryType = FuryType.classic,
     this.furyTimer = 0,
     this.comboCount = 0,
     this.comboTimer = 0,
@@ -61,6 +71,7 @@ class GameState extends Equatable {
       preys: const [],
       furyMeter: 0.0,
       isFuryActive: false,
+      activeFuryType: FuryType.classic,
       furyTimer: 0,
       comboCount: 0,
       comboTimer: 0,
@@ -78,6 +89,7 @@ class GameState extends Equatable {
     List<PreyEntity>? preys,
     double? furyMeter,
     bool? isFuryActive,
+    FuryType? activeFuryType,
     int? furyTimer,
     int? comboCount,
     int? comboTimer,
@@ -93,10 +105,21 @@ class GameState extends Equatable {
       preys: preys ?? this.preys,
       furyMeter: furyMeter ?? this.furyMeter,
       isFuryActive: isFuryActive ?? this.isFuryActive,
+      activeFuryType: activeFuryType ?? this.activeFuryType,
       furyTimer: furyTimer ?? this.furyTimer,
       comboCount: comboCount ?? this.comboCount,
       comboTimer: comboTimer ?? this.comboTimer,
     );
+  }
+
+  String get comboRating {
+     if (comboCount >= 50) return 'SSS';
+     if (comboCount >= 30) return 'SS';
+     if (comboCount >= 20) return 'S';
+     if (comboCount >= 15) return 'A';
+     if (comboCount >= 10) return 'B';
+     if (comboCount >= 5) return 'C';
+     return 'D';
   }
 
   @override
@@ -111,6 +134,7 @@ class GameState extends Equatable {
         preys,
         furyMeter,
         isFuryActive,
+        activeFuryType,
         furyTimer,
         comboCount,
         comboTimer,
