@@ -44,6 +44,9 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
   
   late GameState prevState;
 
+  // === PERFORMANCE FIX: Reuse Random instance ===
+  final Random _random = Random();
+
   PreyFuryGame({this.onGameOver});
 
   @override
@@ -162,14 +165,17 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
      }
   }
 
+  // === PERFORMANCE FIX: Cached background paint ===
+  static final Paint _backgroundClearPaint = Paint()..color = const Color(0xFF050510);
+
   @override
   void render(Canvas canvas) {
     super.render(canvas);
-    
-    // 1. CLEAR EVERYTHING (Safety against artifacts)
+
+    // 1. CLEAR ONLY VISIBLE AREA (Performance: 16.7x less overdraw)
     canvas.drawRect(
-        const Rect.fromLTWH(-1000, -1000, 3000, 3000), 
-        Paint()..color = backgroundColor()
+        Rect.fromLTWH(0, 0, gridWidth * cellSize, gridHeight * cellSize),
+        _backgroundClearPaint
     );
     
     // Apply Camera Shake
@@ -433,7 +439,7 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
               final path = Path();
               path.moveTo(headCenter.dx, headCenter.dy);
               final mid = Offset((headCenter.dx + preyCenter.dx)/2, (headCenter.dy + preyCenter.dy)/2);
-              final jitter = Random().nextDouble() * 20 - 10;
+              final jitter = _random.nextDouble() * 20 - 10;
               path.lineTo(mid.dx + jitter, mid.dy - jitter);
               path.lineTo(preyCenter.dx, preyCenter.dy);
               
@@ -460,48 +466,64 @@ class PreyFuryGame extends FlameGame with KeyboardEvents {
      }
   }
 
+  // === PERFORMANCE FIX: Cached TextPainters for combo rating ===
+  final Map<String, TextPainter> _ratingTextCache = {};
+  final Map<String, TextPainter> _styleTextCache = {};
+
+  TextPainter _getCachedRatingText(String rating, Color color) {
+    final key = '$rating-${color.value}';
+    if (!_ratingTextCache.containsKey(key)) {
+      _ratingTextCache[key] = TextPainter(
+        text: TextSpan(
+          text: rating,
+          style: TextStyle(
+            fontSize: 60,
+            fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
+            color: color,
+            shadows: [
+              Shadow(color: Colors.black, offset: const Offset(4, 4), blurRadius: 4),
+              Shadow(color: color, blurRadius: 20),
+            ]
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+    }
+    return _ratingTextCache[key]!;
+  }
+
+  TextPainter _getCachedStyleText(int count) {
+    final key = 'style-$count';
+    if (!_styleTextCache.containsKey(key)) {
+      _styleTextCache[key] = TextPainter(
+        text: TextSpan(
+          text: "STYLE $count",
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+            letterSpacing: 2.0
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+    }
+    return _styleTextCache[key]!;
+  }
+
   void _drawComboRating(Canvas canvas) {
      if (state.comboCount < 5) return;
-     
+
      final rating = state.comboRating;
      final color = _getRatingColor(rating);
-     
-     final textPainter = TextPainter(
-       text: TextSpan(
-         text: rating,
-         style: TextStyle(
-           fontSize: 60,
-           fontWeight: FontWeight.w900,
-           fontStyle: FontStyle.italic,
-           color: color,
-           shadows: [
-             Shadow(color: Colors.black, offset: const Offset(4, 4), blurRadius: 4),
-             Shadow(color: color, blurRadius: 20),
-           ]
-         ),
-       ),
-       textDirection: TextDirection.ltr,
-     );
-     
-     textPainter.layout();
-     // Draw in top right corner below score? Or center right background?
-     // Let's put it on top right, large
+
+     // Use cached text painter
+     final textPainter = _getCachedRatingText(rating, color);
      textPainter.paint(canvas, Offset(gridWidth * cellSize - 100, 80));
-     
-     // Subtext "Style"
-     final subPainter = TextPainter(
-       text: TextSpan(
-         text: "STYLE ${state.comboCount}",
-         style: const TextStyle(
-           fontSize: 16,
-           fontWeight: FontWeight.bold,
-           color: Colors.white,
-           letterSpacing: 2.0
-         ),
-       ),
-       textDirection: TextDirection.ltr,
-     );
-     subPainter.layout();
+
+     // Subtext "Style" - cached
+     final subPainter = _getCachedStyleText(state.comboCount);
      subPainter.paint(canvas, Offset(gridWidth * cellSize - 90, 145));
   }
   

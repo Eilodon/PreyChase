@@ -13,11 +13,15 @@ class CrocodileGame extends FlameGame with KeyboardEvents {
   late FuryWorld _world;
   late CameraComponent cam;
   late _HudOverlay hud;
-  
+
+  // === PERFORMANCE FIX: Cache component references ===
+  CrocodilePlayer? _cachedPlayer;
+  SpawnManager? _cachedSpawnManager;
+
   // Callbacks
   final void Function(int score)? onGameOver;
   final void Function(int level, int stars)? onLevelComplete;
-  
+
   CrocodileGame({this.onGameOver, this.onLevelComplete});
 
   @override
@@ -32,52 +36,79 @@ class CrocodileGame extends FlameGame with KeyboardEvents {
       onBossSpawn: () => hud.showBossWarning(),
       onTimeUp: () => onGameOver?.call(_world.player.score),
     );
-    
+
     cam = CameraComponent.withFixedResolution(
-      width: 800, 
+      width: 800,
       height: 600,
       world: _world,
     );
     cam.viewfinder.anchor = Anchor.center;
-    
+
     addAll([_world, cam]);
-    
+
     hud = _HudOverlay();
     cam.viewport.add(hud);
+
+    // === PERFORMANCE FIX: Cache component references after world loads ===
+    await Future.delayed(const Duration(milliseconds: 100), () {
+      _cachedPlayer = _world.children.whereType<CrocodilePlayer>().firstOrNull;
+      _cachedSpawnManager = _world.children.whereType<SpawnManager>().firstOrNull;
+    });
   }
   
   @override
   void update(double dt) {
     super.update(dt);
-    
+
+    // === PERFORMANCE FIX: Use cached references instead of whereType() ===
     if (_world.isMounted) {
-      final players = _world.children.whereType<CrocodilePlayer>();
-      if (players.isNotEmpty) {
-        final player = players.first;
-        cam.follow(player, maxSpeed: 500);
-        
-        // Update HUD
-        final spawnManagers = _world.children.whereType<SpawnManager>();
-        if (spawnManagers.isNotEmpty) {
-          hud.updateFromGame(player, spawnManagers.first, _world.currentWave);
+      // Refresh cache if null (e.g., after level restart)
+      _cachedPlayer ??= _world.children.whereType<CrocodilePlayer>().firstOrNull;
+      _cachedSpawnManager ??= _world.children.whereType<SpawnManager>().firstOrNull;
+
+      if (_cachedPlayer != null && _cachedPlayer!.isMounted) {
+        cam.follow(_cachedPlayer!, maxSpeed: 500);
+
+        if (_cachedSpawnManager != null && _cachedSpawnManager!.isMounted) {
+          hud.updateFromGame(_cachedPlayer!, _cachedSpawnManager!, _world.currentWave);
         }
+      } else {
+        // Player was removed, clear cache
+        _cachedPlayer = null;
+        _cachedSpawnManager = null;
       }
     }
   }
   
-  void restart() => _world.restartGame();
-  void restartLevel() => _world.restartLevel();
-  void nextLevel() => _world.nextLevel();
-  void loadLevel(int level) => _world.loadLevel(level);
+  void restart() {
+    _world.restartGame();
+    _cachedPlayer = null;
+    _cachedSpawnManager = null;
+  }
+
+  void restartLevel() {
+    _world.restartLevel();
+    _cachedPlayer = null;
+    _cachedSpawnManager = null;
+  }
+
+  void nextLevel() {
+    _world.nextLevel();
+    _cachedPlayer = null;
+    _cachedSpawnManager = null;
+  }
+
+  void loadLevel(int level) {
+    _world.loadLevel(level);
+    _cachedPlayer = null;
+    _cachedSpawnManager = null;
+  }
   
   @override
   KeyEventResult onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
-    // Forward to player
-    if (_world.isMounted) {
-      final players = _world.children.whereType<CrocodilePlayer>();
-      if (players.isNotEmpty) {
-        players.first.onKeyEvent(event, keysPressed);
-      }
+    // Forward to player using cached reference
+    if (_world.isMounted && _cachedPlayer != null && _cachedPlayer!.isMounted) {
+      _cachedPlayer!.onKeyEvent(event, keysPressed);
     }
     return KeyEventResult.handled;
   }
@@ -106,8 +137,22 @@ class _HudOverlay extends PositionComponent with HasGameRef {
   
   final Paint _healthBgPaint = Paint()..color = Colors.grey.shade800;
   final Paint _furyBgPaint = Paint()..color = Colors.grey.shade800;
-  
-  _HudOverlay() : super(position: Vector2.zero());
+
+  // === PERFORMANCE FIX: Cached Paint objects for health/fury bars ===
+  final Paint _healthGreenPaint = Paint()..color = Colors.green;
+  final Paint _healthOrangePaint = Paint()..color = Colors.orange;
+  final Paint _healthRedPaint = Paint()..color = Colors.red;
+  final Paint _furyOrangePaint = Paint()..color = Colors.orange;
+  final Paint _furyCyanPaint = Paint()..color = Colors.cyan;
+  final Paint _furyDarkOrangePaint = Paint();
+
+  // === PERFORMANCE FIX: Cached TextPainters ===
+  final Map<String, TextPainter> _textCache = {};
+  int _cacheVersion = 0;
+
+  _HudOverlay() : super(position: Vector2.zero()) {
+    _furyDarkOrangePaint.color = Colors.orange.shade700;
+  }
   
   void updateFromGame(CrocodilePlayer player, SpawnManager spawn, int currentWave) {
     _score = player.score;
@@ -180,10 +225,10 @@ class _HudOverlay extends PositionComponent with HasGameRef {
       _healthBgPaint,
     );
     final healthPct = (_health / _maxHealth).clamp(0.0, 1.0);
-    final healthColor = healthPct > 0.5 ? Colors.green : (healthPct > 0.25 ? Colors.orange : Colors.red);
+    final healthPaint = healthPct > 0.5 ? _healthGreenPaint : (healthPct > 0.25 ? _healthOrangePaint : _healthRedPaint);
     canvas.drawRRect(
       RRect.fromRectAndRadius(Rect.fromLTWH(rightX + 25, margin, (barWidth - 25) * healthPct, barHeight), const Radius.circular(4)),
-      Paint()..color = healthColor,
+      healthPaint,
     );
     _drawText(canvas, '${_health.toInt()}', Offset(rightX + barWidth / 2, margin + 1), 10, Colors.white);
     
@@ -194,10 +239,10 @@ class _HudOverlay extends PositionComponent with HasGameRef {
       RRect.fromRectAndRadius(Rect.fromLTWH(rightX + 35, furyY, barWidth - 35, barHeight), const Radius.circular(4)),
       _furyBgPaint,
     );
-    final furyColor = _isFuryActive ? Colors.orange : (_canActivateFury ? Colors.cyan : Colors.orange.shade700);
+    final furyPaint = _isFuryActive ? _furyOrangePaint : (_canActivateFury ? _furyCyanPaint : _furyDarkOrangePaint);
     canvas.drawRRect(
       RRect.fromRectAndRadius(Rect.fromLTWH(rightX + 35, furyY, (barWidth - 35) * _furyMeter, barHeight), const Radius.circular(4)),
-      Paint()..color = furyColor,
+      furyPaint,
     );
     
     // Fury status
@@ -210,9 +255,46 @@ class _HudOverlay extends PositionComponent with HasGameRef {
     
     // === CENTER: Announcement ===
     if (_announcement != null) {
-      final announcePaint = TextPainter(
+      // Use cached announcement text with larger size and distinct style
+      final announcePaint = _getAnnouncementTextPainter(_announcement!);
+      announcePaint.paint(canvas, Offset(400 - announcePaint.width / 2, 250));
+    }
+    
+    // === BOTTOM: Controls ===
+    _drawText(canvas, 'WASD: Move | SPACE: Fury | Eat prey in Fury mode!', Offset(180, 580), 11, Colors.white38);
+  }
+  
+  TextPainter _getCachedTextPainter(String text, double fontSize, Color color) {
+    final key = '$text-$fontSize-${color.value}';
+    if (!_textCache.containsKey(key)) {
+      _textCache[key] = TextPainter(
         text: TextSpan(
-          text: _announcement,
+          text: text,
+          style: TextStyle(
+            color: color,
+            fontSize: fontSize,
+            fontWeight: FontWeight.bold,
+            shadows: const [Shadow(color: Colors.black, blurRadius: 3, offset: Offset(1, 1))],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      // Limit cache size to prevent memory growth
+      if (_textCache.length > 50) {
+        _textCache.clear();
+        _cacheVersion++;
+      }
+    }
+    return _textCache[key]!;
+  }
+
+  TextPainter _getAnnouncementTextPainter(String text) {
+    final key = 'announcement-$text';
+    if (!_textCache.containsKey(key)) {
+      _textCache[key] = TextPainter(
+        text: TextSpan(
+          text: text,
           style: TextStyle(
             color: Colors.yellow,
             fontSize: 36,
@@ -224,29 +306,19 @@ class _HudOverlay extends PositionComponent with HasGameRef {
           ),
         ),
         textDirection: TextDirection.ltr,
-      );
-      announcePaint.layout();
-      announcePaint.paint(canvas, Offset(400 - announcePaint.width / 2, 250));
+      )..layout();
+
+      // Limit cache size
+      if (_textCache.length > 50) {
+        _textCache.clear();
+        _cacheVersion++;
+      }
     }
-    
-    // === BOTTOM: Controls ===
-    _drawText(canvas, 'WASD: Move | SPACE: Fury | Eat prey in Fury mode!', Offset(180, 580), 11, Colors.white38);
+    return _textCache[key]!;
   }
-  
+
   void _drawText(Canvas canvas, String text, Offset position, double fontSize, Color color) {
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: TextStyle(
-          color: color,
-          fontSize: fontSize,
-          fontWeight: FontWeight.bold,
-          shadows: const [Shadow(color: Colors.black, blurRadius: 3, offset: Offset(1, 1))],
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
+    final textPainter = _getCachedTextPainter(text, fontSize, color);
     textPainter.paint(canvas, position);
   }
 }
