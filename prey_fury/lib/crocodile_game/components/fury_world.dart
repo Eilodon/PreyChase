@@ -8,6 +8,8 @@ import 'prey_component.dart';
 import 'obstacle_component.dart';
 import 'spawn_manager.dart';
 import 'spatial_grid.dart';
+import 'power_up_manager.dart';
+import 'juice_manager.dart';
 
 /// Game state enum
 enum CrocGameStatus { playing, gameOver, levelComplete, paused }
@@ -15,11 +17,19 @@ enum CrocGameStatus { playing, gameOver, levelComplete, paused }
 class FuryWorld extends World {
   late CrocodilePlayer player;
   late SpawnManager spawnManager;
+  late PowerUpManager powerUpManager;
+  late JuiceManager juiceManager;
   final Random _rnd = Random();
 
   // === PERFORMANCE: Spatial grid for prey AI optimization ===
   final SpatialGrid<PreyComponent> preyGrid = SpatialGrid(cellSize: 80);
-  
+
+  // === LEVEL-UP SYSTEM ===
+  double _timeSinceLastLevelUp = 0.0;
+  int _killsSinceLastLevelUp = 0;
+  static const double levelUpTimeInterval = 30.0; // Every 30 seconds
+  static const int levelUpKillInterval = 10; // Every 10 kills
+
   // Game State
   CrocGameStatus status = CrocGameStatus.playing;
   int currentLevel = 1;
@@ -48,14 +58,35 @@ class FuryWorld extends World {
     player = CrocodilePlayer(position: Vector2(0, 0));
     player.onEvent = _handlePlayerEvent;
     add(player);
-    
+
     spawnManager = SpawnManager();
     add(spawnManager);
+
+    // Initialize power-up system
+    powerUpManager = PowerUpManager(player: player);
+    add(powerUpManager);
+
+    // Initialize juice effects system
+    juiceManager = JuiceManager();
+    add(juiceManager);
   }
   
   void _handlePlayerEvent(CrocGameEvent event) {
-    if (event == CrocGameEvent.died) {
-      _triggerGameOver();
+    switch (event) {
+      case CrocGameEvent.died:
+        _triggerGameOver();
+        break;
+      case CrocGameEvent.furyActivated:
+        juiceManager.freezeFuryActivation(); // 100ms freeze
+        break;
+      case CrocGameEvent.damaged:
+        juiceManager.hitStopDamage(); // Hit stop effect
+        break;
+      case CrocGameEvent.atePrey:
+        juiceManager.freezePreyEat(); // 50ms freeze
+        break;
+      default:
+        break;
     }
   }
   
@@ -64,17 +95,53 @@ class FuryWorld extends World {
     status = CrocGameStatus.gameOver;
     onGameOver?.call(player.score);
   }
+
+  void _triggerLevelUp() {
+    if (status != CrocGameStatus.playing) return;
+    if (powerUpManager.isSelectingPowerUp) return; // Already selecting
+
+    // Pause game
+    status = CrocGameStatus.paused;
+
+    // Offer power-up selection
+    powerUpManager.offerPowerUpSelection();
+  }
+
+  void resumeFromPowerUpSelection() {
+    status = CrocGameStatus.playing;
+  }
   
   @override
   void update(double dt) {
     if (status != CrocGameStatus.playing) return;
 
+    // === JUICE: Apply time scale (freeze frame / hit stop) ===
+    final scaledDt = dt * juiceManager.timeScale;
+
     // === PERFORMANCE: Rebuild spatial grid before AI updates ===
     final allPreys = children.whereType<PreyComponent>().toList();
     preyGrid.rebuild(allPreys);
 
-    super.update(dt);
+    // Update with scaled delta time for game objects
+    for (final component in children) {
+      if (component is! JuiceManager) { // Don't scale juice manager itself
+        component.update(scaledDt);
+      }
+    }
+
     _checkCollisions();
+
+    // === LEVEL-UP TRIGGERS (use real dt, not scaled) ===
+    _timeSinceLastLevelUp += dt;
+
+    // Time-based level-up (every 30 seconds)
+    if (_timeSinceLastLevelUp >= levelUpTimeInterval) {
+      _triggerLevelUp();
+      _timeSinceLastLevelUp = 0.0;
+    }
+
+    // Kill-based level-up (every 10 kills)
+    // Note: _killsSinceLastLevelUp is incremented in _eatPrey()
 
     // Reset spatial grid stats for next frame
     preyGrid.resetStats();
@@ -127,14 +194,24 @@ class FuryWorld extends World {
   
   void _eatPrey(PreyComponent prey) {
     final scoreValue = _getPreyScoreValue(prey.type);
-    
+
     player.addScore(scoreValue);
     player.grow(0.3);
     player.addFury(0.1); // Small fury bonus for eating prey
-    
+
     totalPreysEaten++;
+    _killsSinceLastLevelUp++;
     spawnManager.onPreyEaten();
-    
+
+    // Trigger juice effect
+    player.onEvent?.call(CrocGameEvent.atePrey);
+
+    // Check for kill-based level-up
+    if (_killsSinceLastLevelUp >= levelUpKillInterval) {
+      _triggerLevelUp();
+      _killsSinceLastLevelUp = 0;
+    }
+
     prey.onEaten();
     prey.removeFromParent();
   }

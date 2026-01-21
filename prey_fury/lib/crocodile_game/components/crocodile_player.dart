@@ -25,6 +25,37 @@ class CrocodilePlayer extends PositionComponent with KeyboardHandler {
   bool isFuryActive = false;
   double furyDuration = 0.0; // Seconds remaining
   static const double furyMaxDuration = 5.0;
+
+  // === POWER-UP EFFECTS (Modified by PowerUpManager) ===
+  // Offensive
+  double furyDamageMultiplier = 1.0;
+  double magneticRange = 50.0;
+  bool furyChainEnabled = false;
+  bool autoFuryEnabled = false;
+  double autoFuryThreshold = 30.0;
+
+  // Defensive
+  double healthRegenRate = 0.0;
+  double damageReduction = 0.0;
+  bool hasSecondChance = false;
+  bool _secondChanceUsed = false;
+  bool invincibilityEnabled = false;
+  double invincibilityDuration = 1.0;
+  double _invincibilityTimer = 0.0;
+
+  // Mobility
+  double speedMultiplier = 1.0;
+  bool dashEnabled = false;
+  double dashCooldownMultiplier = 1.0;
+  bool teleportEnabled = false;
+  bool timeWarpEnabled = false;
+
+  // Utility
+  double scoreMultiplier = 1.0;
+  double furyGainMultiplier = 1.0;
+  double xpMultiplier = 1.0;
+  bool itemMagnetEnabled = false;
+  double itemMagnetRange = 150.0;
   
   // === SCORE ===
   int score = 0;
@@ -44,7 +75,7 @@ class CrocodilePlayer extends PositionComponent with KeyboardHandler {
   double _speedModifier = 1.0;
   
   // Getters
-  double get maxSpeed => 200.0 * (1.0 - (fatLevel * 0.03)) * (isFuryActive ? 1.5 : 1.0) * _speedModifier;
+  double get maxSpeed => 200.0 * (1.0 - (fatLevel * 0.03)) * (isFuryActive ? 1.5 : 1.0) * _speedModifier * speedMultiplier;
   Vector2 get hitboxSize => Vector2(_baseWidth + (fatLevel * 4), 32 + (fatLevel * 2));
   bool get canActivateFury => furyMeter >= 1.0 && !isFuryActive;
   bool get isDead => health <= 0;
@@ -67,14 +98,14 @@ class CrocodilePlayer extends PositionComponent with KeyboardHandler {
   // === ACTIONS ===
   
   void addScore(int points) {
-    score += points * comboMultiplier;
+    score += (points * comboMultiplier * scoreMultiplier).round();
     comboMultiplier = min(5, comboMultiplier + 1);
     comboTimer = comboTimeout;
   }
   
   void addFury(double amount) {
     if (isFuryActive) return;
-    furyMeter = min(1.0, furyMeter + amount);
+    furyMeter = min(1.0, furyMeter + (amount * furyGainMultiplier));
   }
   
   void activateFury() {
@@ -86,18 +117,41 @@ class CrocodilePlayer extends PositionComponent with KeyboardHandler {
   }
   
   void takeDamage(double amount) {
-    if (isFuryActive) return; // Invincible during fury
-    
-    health = max(0, health - amount);
+    // Invincibility checks
+    if (isFuryActive) return;
+    if (invincibilityEnabled && _invincibilityTimer > 0) return;
+
+    // Apply damage reduction from armor
+    final finalDamage = amount * (1.0 - damageReduction);
+
+    health = max(0, health - finalDamage);
     _damageFlash = 0.3;
     comboMultiplier = 1;
     comboTimer = 0;
-    
+
+    // Activate invincibility frames
+    if (invincibilityEnabled) {
+      _invincibilityTimer = invincibilityDuration;
+    }
+
+    // Second chance (Phoenix Feather)
+    if (health <= 0 && hasSecondChance && !_secondChanceUsed) {
+      health = maxHealth * 0.5; // Revive with 50% HP
+      _secondChanceUsed = true;
+      onEvent?.call(CrocGameEvent.furyActivated); // Visual feedback
+      return; // Don't shrink or trigger death
+    }
+
     // Shrink on damage
     fatLevel = max(0, fatLevel - 0.5);
-    
+
+    // Auto-fury at low HP (Berserker)
+    if (autoFuryEnabled && health <= maxHealth * (autoFuryThreshold / 100.0) && canActivateFury) {
+      activateFury();
+    }
+
     onEvent?.call(CrocGameEvent.damaged);
-    
+
     if (health <= 0) {
       onEvent?.call(CrocGameEvent.died);
     }
@@ -172,7 +226,18 @@ class CrocodilePlayer extends PositionComponent with KeyboardHandler {
   void update(double dt) {
     super.update(dt);
     _time += dt;
-    
+
+    // === POWER-UP EFFECTS UPDATE ===
+    // Health regeneration
+    if (healthRegenRate > 0 && health < maxHealth) {
+      health = min(maxHealth, health + (healthRegenRate * dt));
+    }
+
+    // Invincibility frames timer
+    if (_invincibilityTimer > 0) {
+      _invincibilityTimer -= dt;
+    }
+
     // === FURY UPDATE ===
     if (isFuryActive) {
       furyDuration -= dt;
@@ -182,7 +247,7 @@ class CrocodilePlayer extends PositionComponent with KeyboardHandler {
         onEvent?.call(CrocGameEvent.furyEnded);
       }
     }
-    
+
     // === COMBO DECAY ===
     if (comboTimer > 0) {
       comboTimer -= dt;
