@@ -10,6 +10,7 @@ import 'spawn_manager.dart';
 import 'spatial_grid.dart';
 import 'power_up_manager.dart';
 import 'juice_manager.dart';
+import '../audio/audio_manager.dart';
 
 /// Game state enum
 enum CrocGameStatus { playing, gameOver, levelComplete, paused }
@@ -19,6 +20,7 @@ class FuryWorld extends World {
   late SpawnManager spawnManager;
   late PowerUpManager powerUpManager;
   late JuiceManager juiceManager;
+  late AudioManager audioManager;
   final Random _rnd = Random();
 
   // === PERFORMANCE: Spatial grid for prey AI optimization ===
@@ -69,21 +71,40 @@ class FuryWorld extends World {
     // Initialize juice effects system
     juiceManager = JuiceManager();
     add(juiceManager);
+
+    // Initialize audio system
+    audioManager = AudioManager();
+    await audioManager.initialize();
+    audioManager.startMusic(); // Start background music
   }
   
   void _handlePlayerEvent(CrocGameEvent event) {
     switch (event) {
       case CrocGameEvent.died:
         _triggerGameOver();
+        audioManager.playDeath(); // Death sound
+        audioManager.stopMusic();
         break;
       case CrocGameEvent.furyActivated:
         juiceManager.freezeFuryActivation(); // 100ms freeze
+        audioManager.playFuryActivate(); // Epic sound!
+        audioManager.setMusicIntensity(MusicIntensity.fury); // Switch to fury music
+        break;
+      case CrocGameEvent.furyEnded:
+        audioManager.playFuryEnd();
+        audioManager.setMusicIntensity(MusicIntensity.calm); // Back to calm music
         break;
       case CrocGameEvent.damaged:
         juiceManager.hitStopDamage(); // Hit stop effect
+        final damagePercent = 1.0 - (player.health / player.maxHealth);
+        audioManager.playTakeDamage(damagePercent: damagePercent);
         break;
       case CrocGameEvent.atePrey:
         juiceManager.freezePreyEat(); // 50ms freeze
+        audioManager.playEatPrey(comboLevel: player.comboMultiplier);
+        if (player.comboMultiplier > 1) {
+          audioManager.playComboIncrease(player.comboMultiplier);
+        }
         break;
       default:
         break;
@@ -99,6 +120,10 @@ class FuryWorld extends World {
   void _triggerLevelUp() {
     if (status != CrocGameStatus.playing) return;
     if (powerUpManager.isSelectingPowerUp) return; // Already selecting
+
+    // Audio feedback
+    audioManager.playLevelUp();
+    audioManager.playPowerUpAppear();
 
     // Pause game
     status = CrocGameStatus.paused;
