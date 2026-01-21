@@ -7,6 +7,7 @@ import 'crocodile_player.dart';
 import 'prey_component.dart';
 import 'obstacle_component.dart';
 import 'spawn_manager.dart';
+import 'spatial_grid.dart';
 
 /// Game state enum
 enum CrocGameStatus { playing, gameOver, levelComplete, paused }
@@ -15,6 +16,9 @@ class FuryWorld extends World {
   late CrocodilePlayer player;
   late SpawnManager spawnManager;
   final Random _rnd = Random();
+
+  // === PERFORMANCE: Spatial grid for prey AI optimization ===
+  final SpatialGrid<PreyComponent> preyGrid = SpatialGrid(cellSize: 80);
   
   // Game State
   CrocGameStatus status = CrocGameStatus.playing;
@@ -64,8 +68,16 @@ class FuryWorld extends World {
   @override
   void update(double dt) {
     if (status != CrocGameStatus.playing) return;
+
+    // === PERFORMANCE: Rebuild spatial grid before AI updates ===
+    final allPreys = children.whereType<PreyComponent>().toList();
+    preyGrid.rebuild(allPreys);
+
     super.update(dt);
     _checkCollisions();
+
+    // Reset spatial grid stats for next frame
+    preyGrid.resetStats();
   }
   
   void _checkCollisions() {

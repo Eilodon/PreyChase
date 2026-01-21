@@ -191,29 +191,38 @@ class PreyComponent extends PositionComponent with HasWorldReference<FuryWorld> 
     return _seek(position + _wanderTarget);
   }
   
+  // === PERFORMANCE FIX: Use spatial grid instead of O(N²) search ===
   Vector2 _separationForce() {
     Vector2 steering = Vector2.zero();
     int count = 0;
-    final neighbors = parent?.children.whereType<PreyComponent>() ?? [];
-    
+
+    // Old O(N²) approach (SLOW):
+    // final neighbors = parent?.children.whereType<PreyComponent>() ?? [];
+
+    // New O(N) approach using spatial grid (FAST):
+    const separationRadius = 40.0;
+    final neighbors = world.preyGrid.getNeighborsInRadius(position, separationRadius);
+
     for (final other in neighbors) {
       if (other == this) continue;
-      double d = position.distanceTo(other.position);
-      if (d > 0 && d < 40) {
+
+      final d = position.distanceTo(other.position);
+      if (d > 0 && d < separationRadius) {
         Vector2 diff = position - other.position;
         diff.normalize();
-        diff /= d;
+        diff /= d; // Weight by distance
         steering.add(diff);
         count++;
       }
     }
-    
+
     if (count > 0) {
       steering /= count.toDouble();
       if (steering.length > 0) {
         steering = steering.normalized() * maxSpeed - velocity;
       }
     }
+
     return steering;
   }
   
