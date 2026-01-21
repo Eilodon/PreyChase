@@ -9,6 +9,8 @@ import 'components/fury_world.dart';
 import 'components/crocodile_player.dart';
 import 'components/spawn_manager.dart';
 import 'components/performance_overlay.dart';
+import 'components/power_up_overlay.dart';
+import 'models/power_up.dart';
 
 class CrocodileGame extends FlameGame with KeyboardEvents {
   late FuryWorld _world;
@@ -19,6 +21,9 @@ class CrocodileGame extends FlameGame with KeyboardEvents {
   // === PERFORMANCE FIX: Cache component references ===
   CrocodilePlayer? _cachedPlayer;
   SpawnManager? _cachedSpawnManager;
+
+  // Power-up overlay (shown when level-up occurs)
+  PowerUpOverlay? _powerUpOverlay;
 
   // Callbacks
   final void Function(int score)? onGameOver;
@@ -59,7 +64,29 @@ class CrocodileGame extends FlameGame with KeyboardEvents {
     await Future.delayed(const Duration(milliseconds: 100), () {
       _cachedPlayer = _world.children.whereType<CrocodilePlayer>().firstOrNull;
       _cachedSpawnManager = _world.children.whereType<SpawnManager>().firstOrNull;
+
+      // Setup power-up system callbacks
+      _world.powerUpManager.onPowerUpOffered = _showPowerUpSelection;
+      _world.powerUpManager.onSelectionComplete = _hidePowerUpSelection;
     });
+  }
+
+  void _showPowerUpSelection(List<PowerUp> offers) {
+    // Create and show power-up overlay
+    _powerUpOverlay = PowerUpOverlay(
+      offers: offers,
+      onSelected: (index) {
+        _world.powerUpManager.selectPowerUp(index);
+      },
+    );
+    cam.viewport.add(_powerUpOverlay!);
+  }
+
+  void _hidePowerUpSelection() {
+    // Remove overlay and resume game
+    _powerUpOverlay?.removeFromParent();
+    _powerUpOverlay = null;
+    _world.resumeFromPowerUpSelection();
   }
   
   @override
