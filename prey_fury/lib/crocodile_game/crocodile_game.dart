@@ -8,11 +8,13 @@ import 'package:flutter/services.dart';
 import 'components/fury_world.dart';
 import 'components/crocodile_player.dart';
 import 'components/spawn_manager.dart';
+import 'components/performance_overlay.dart';
 
 class CrocodileGame extends FlameGame with KeyboardEvents {
   late FuryWorld _world;
   late CameraComponent cam;
   late _HudOverlay hud;
+  late PerformanceOverlay perfOverlay;
 
   // === PERFORMANCE FIX: Cache component references ===
   CrocodilePlayer? _cachedPlayer;
@@ -48,6 +50,10 @@ class CrocodileGame extends FlameGame with KeyboardEvents {
 
     hud = _HudOverlay();
     cam.viewport.add(hud);
+
+    // Add performance overlay (disabled by default)
+    perfOverlay = PerformanceOverlay();
+    cam.viewport.add(perfOverlay);
 
     // === PERFORMANCE FIX: Cache component references after world loads ===
     await Future.delayed(const Duration(milliseconds: 100), () {
@@ -106,6 +112,12 @@ class CrocodileGame extends FlameGame with KeyboardEvents {
   
   @override
   KeyEventResult onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
+    // === DEBUG: Toggle performance overlay with F3 ===
+    if (event is KeyDownEvent && keysPressed.contains(LogicalKeyboardKey.f3)) {
+      PerformanceOverlay.toggle();
+      return KeyEventResult.handled;
+    }
+
     // Forward to player using cached reference
     if (_world.isMounted && _cachedPlayer != null && _cachedPlayer!.isMounted) {
       _cachedPlayer!.onKeyEvent(event, keysPressed);

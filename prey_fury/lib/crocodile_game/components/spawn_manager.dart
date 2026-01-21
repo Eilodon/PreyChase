@@ -28,11 +28,15 @@ class SpawnZone {
 
 class SpawnManager extends Component with HasWorldReference<FuryWorld> {
   final Random _rnd = Random();
-  
+
   // Timers
   double _spawnTimer = 0.0;
   double _waveTimer = 0.0;
   double _levelTimer = 0.0;
+
+  // === PERFORMANCE: Throttle zone count updates ===
+  double _zoneUpdateTimer = 0.0;
+  static const double _zoneUpdateInterval = 0.5; // Update every 0.5s instead of every frame
   
   // Level state
   late LevelConfig _levelConfig;
@@ -139,15 +143,22 @@ class SpawnManager extends Component with HasWorldReference<FuryWorld> {
   @override
   void update(double dt) {
     super.update(dt);
-    
+
     if (world.status != CrocGameStatus.playing) return;
-    
+
     _spawnTimer += dt;
     _waveTimer += dt;
     _levelTimer += dt;
-    
-    // Update zone counts
-    _updateZoneCounts();
+    _zoneUpdateTimer += dt;
+
+    // === PERFORMANCE: Update zone counts only every 0.5s (throttled) ===
+    // Old: Called every frame (60 FPS) = 60 * N * 9 checks per second
+    // New: Called 2x per second = 2 * N * 9 checks per second
+    // Reduction: 97% fewer checks!
+    if (_zoneUpdateTimer >= _zoneUpdateInterval) {
+      _zoneUpdateTimer = 0.0;
+      _updateZoneCounts();
+    }
     
     // 1. Check win condition
     if (_checkWinCondition()) {
